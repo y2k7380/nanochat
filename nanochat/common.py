@@ -114,10 +114,15 @@ def compute_init():
         dist.init_process_group(backend="nccl", device_id=device)
         dist.barrier()
     else:
+        # For single GPU, allow selection via CUDA_VISIBLE_DEVICES or default to GPU 0
+        # If CUDA_VISIBLE_DEVICES is set, torch.device("cuda") will use the first visible GPU
+        # Otherwise, it defaults to GPU 0
         device = torch.device("cuda")
+        torch.cuda.set_device(device) # make "cuda" default to this device
 
     if ddp_rank == 0:
         logger.info(f"Distributed world size: {ddp_world_size}")
+        logger.info(f"Using device: {device}")
 
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, device
 
