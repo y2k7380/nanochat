@@ -108,11 +108,22 @@ def compute_init():
 
     # Distributed setup: Distributed Data Parallel (DDP), optional
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
+
+    # Get actual number of GPUs available
+    num_gpus = torch.cuda.device_count()
+
     if ddp:
-        device = torch.device("cuda", ddp_local_rank)
+        # Map local_rank to available GPUs using modulo
+        # This allows running more processes than GPUs (e.g., 8 processes on 1 GPU)
+        device_id = ddp_local_rank % num_gpus
+        device = torch.device("cuda", device_id)
         torch.cuda.set_device(device) # make "cuda" default to this device
         dist.init_process_group(backend="nccl", device_id=device)
         dist.barrier()
+
+        if ddp_rank == 0 and ddp_world_size > num_gpus:
+            logger.warning(f"Running {ddp_world_size} processes on {num_gpus} GPU(s). "
+                          f"Multiple processes will share GPUs.")
     else:
         # For single GPU, allow selection via CUDA_VISIBLE_DEVICES or default to GPU 0
         # If CUDA_VISIBLE_DEVICES is set, torch.device("cuda") will use the first visible GPU
@@ -122,6 +133,7 @@ def compute_init():
 
     if ddp_rank == 0:
         logger.info(f"Distributed world size: {ddp_world_size}")
+        logger.info(f"Number of GPUs available: {num_gpus}")
         logger.info(f"Using device: {device}")
 
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, device
