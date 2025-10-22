@@ -38,6 +38,18 @@ fi
 
 echo "Running with $NGPUS GPU(s)"
 
+# Define a function to run commands with or without torchrun based on GPU count
+run_training() {
+    if [ "$NGPUS" -eq 1 ]; then
+        # Single GPU: run without torchrun (no DDP)
+        echo "Single GPU detected: Running without DDP"
+        python -m "$@"
+    else
+        # Multiple GPUs: use torchrun with DDP
+        torchrun --standalone --nproc_per_node=$NGPUS -m "$@"
+    fi
+}
+
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
 
@@ -115,25 +127,25 @@ echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
 # pretrain the d20 model
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.base_train -- --depth=20 --run=$WANDB_RUN
+run_training scripts.base_train -- --depth=20 --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.base_loss
+run_training scripts.base_loss
 # evaluate the model on CORE tasks
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.base_eval
+run_training scripts.base_eval
 
 # -----------------------------------------------------------------------------
 # Midtraining (teach the model conversation special tokens, tool use, multiple choice)
 
 # run midtraining and eval the model
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.mid_train -- --run=$WANDB_RUN
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_eval -- -i mid
+run_training scripts.mid_train -- --run=$WANDB_RUN
+run_training scripts.chat_eval -- -i mid
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning (domain adaptation to each sequence all by itself per row)
 
 # train sft and re-eval right away (should see a small bump)
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_sft -- --run=$WANDB_RUN
-torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_eval -- -i sft
+run_training scripts.chat_sft -- --run=$WANDB_RUN
+run_training scripts.chat_eval -- -i sft
 
 # chat with the model over CLI! Leave out the -p to chat interactively
 # python -m scripts.chat_cli -p "Why is the sky blue?"
@@ -146,9 +158,9 @@ torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_eval -- -i sft
 # (optional)
 
 # run reinforcement learning
-# torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_rl -- --run=$WANDB_RUN
+# run_training scripts.chat_rl -- --run=$WANDB_RUN
 # eval the RL model only on GSM8K
-# torchrun --standalone --nproc_per_node=$NGPUS -m scripts.chat_eval -- -i rl -a GSM8K
+# run_training scripts.chat_eval -- -i rl -a GSM8K
 
 # -----------------------------------------------------------------------------
 # Generate the full report by putting together all the sections
